@@ -1,0 +1,222 @@
+﻿@page "/"
+@using PokerStars.Accessibility.Models
+@using PokerStars.Accessibility.Services
+@inject IGameExtractionService GameService
+@inject ITextToSpeechService TtsService
+@implements IDisposable
+
+<h1 tabindex="0" aria-label="PokerStars Accessibility - Game View">PokerStars Accessibility</h1>
+
+<div class="game-container" role="main" aria-live="polite">
+    @if (_isLoading)
+    {
+        <div class="loading" role="status" aria-label="Loading game state">
+            <p>Loading game state...</p>
+        </div>
+    }
+    else if (_gameState == null || !_gameState.IsValid)
+    {
+        <div class="no-game" role="alert">
+            <p>@(_gameState?.ErrorMessage ?? "No PokerStars table detected. Please open a table in PokerStars.")</p>
+            <button class="btn btn-primary" @onclick="RefreshGameState" aria-label="Refresh game state">
+                Refresh
+            </button>
+        </div>
+    }
+    else
+    {
+        <div class="game-info">
+            <!-- Table Info -->
+            <section class="table-info" aria-label="Table information">
+                <h2>Table: @_gameState.Table.Name</h2>
+                <p><strong>@_gameState.Table.GetBlindsDescription()</strong></p>
+                <p class="pot" aria-label="Pot amount">Pot: @_gameState.Table.Pot.ToString("C")</p>
+            </section>
+
+            <!-- Hero Cards -->
+            <section class="hero-cards" aria-label="Your cards">
+                <h2>Your Cards</h2>
+                @{
+                    var hero = _gameState.Table.GetHero();
+                }
+                @if (hero != null && hero.HoleCards.Count > 0)
+                {
+                    <div class="cards" role="list">
+                        @foreach (var card in hero.HoleCards)
+                        {
+                            <div class="card @GetSuitClass(card.Suit)" role="listitem" aria-label="@card.ToString()">
+                                <span class="rank">@GetRankDisplay(card.Rank)</span>
+                                <span class="suit">@GetSuitSymbol(card.Suit)</span>
+                            </div>
+                        }
+                    </div>
+                    <p class="stack" aria-label="Your chip stack">Your stack: @hero.ChipStack.ToString("C")</p>
+                }
+                else
+                {
+                    <p>No cards visible</p>
+                }
+            </section>
+
+            <!-- Community Cards -->
+            <section class="community-cards" aria-label="Community cards">
+                <h2>Board</h2>
+                @if (_gameState.Table.CommunityCards.Count > 0)
+                {
+                    <div class="cards" role="list">
+                        @foreach (var card in _gameState.Table.CommunityCards)
+                        {
+                            <div class="card @GetSuitClass(card.Suit)" role="listitem" aria-label="@card.ToString()">
+                                <span class="rank">@GetRankDisplay(card.Rank)</span>
+                                <span class="suit">@GetSuitSymbol(card.Suit)</span>
+                            </div>
+                        }
+                    </div>
+                    <p>Round: @_gameState.Table.CurrentRound</p>
+                }
+                else
+                {
+                    <p>No community cards dealt yet (Preflop)</p>
+                }
+            </section>
+
+            <!-- Turn Info -->
+            @if (_gameState.IsHeroTurn)
+            {
+                <section class="turn-alert" role="alert" aria-label="Your turn to act">
+                    <h2>⚡ Your Turn!</h2>
+                    @if (_gameState.TimeRemaining.HasValue)
+                    {
+                        <p>Time remaining: @_gameState.TimeRemaining seconds</p>
+                    }
+                </section>
+            }
+
+            <!-- Recent Actions -->
+            <section class="recent-actions" aria-label="Recent actions">
+                <h2>Recent Actions</h2>
+                @if (_gameState.Table.ActionHistory.Count > 0)
+                {
+                    <ul role="list">
+                        @foreach (var action in _gameState.Table.ActionHistory.TakeLast(5))
+                        {
+                            <li aria-label="@action.ToString()">@action.ToString()</li>
+                        }
+                    </ul>
+                }
+                else
+                {
+                    <p>No actions yet</p>
+                }
+            </section>
+        </div>
+    }
+
+    <!-- Controls -->
+    <div class="controls" role="toolbar" aria-label="Game controls">
+        <button class="btn btn-primary" @onclick="RefreshGameState" disabled="@_isLoading" aria-label="Refresh game state">
+            🔄 Refresh
+        </button>
+        <button class="btn btn-secondary" @onclick="SpeakGameState" disabled="@(_gameState == null)" aria-label="Speak game state">
+            🔊 Speak State
+        </button>
+        <button class="btn @(_isMonitoring ? "btn-danger" : "btn-success")" @onclick="ToggleMonitoring" aria-label="@(_isMonitoring ? "Stop monitoring" : "Start monitoring")">
+            @(_isMonitoring ? "⏹️ Stop" : "▶️ Monitor")
+        </button>
+    </div>
+</div>
+
+@code {
+    private GameState? _gameState;
+    private bool _isLoading = false;
+    private bool _isMonitoring = false;
+    private CancellationTokenSource? _monitoringCts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        GameService.GameStateChanged += OnGameStateChanged;
+        await RefreshGameState();
+    }
+
+    private async Task RefreshGameState()
+    {
+        _isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            _gameState = await GameService.ExtractGameStateAsync();
+        }
+        finally
+        {
+            _isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SpeakGameState()
+    {
+        if (_gameState != null)
+        {
+            var summary = _gameState.GetAccessibleSummary();
+            await TtsService.SpeakAsync(summary);
+        }
+    }
+
+    private async Task ToggleMonitoring()
+    {
+        if (_isMonitoring)
+        {
+            _monitoringCts?.Cancel();
+            GameService.StopMonitoring();
+            _isMonitoring = false;
+        }
+        else
+        {
+            _monitoringCts = new CancellationTokenSource();
+            _isMonitoring = true;
+            _ = GameService.StartMonitoringAsync(_monitoringCts.Token);
+        }
+    }
+
+    private void OnGameStateChanged(object? sender, GameState newState)
+    {
+        _gameState = newState;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private string GetSuitClass(CardSuit suit) => suit switch
+    {
+        CardSuit.Hearts => "hearts",
+        CardSuit.Diamonds => "diamonds",
+        CardSuit.Clubs => "clubs",
+        CardSuit.Spades => "spades",
+        _ => ""
+    };
+
+    private string GetSuitSymbol(CardSuit suit) => suit switch
+    {
+        CardSuit.Hearts => "♥",
+        CardSuit.Diamonds => "♦",
+        CardSuit.Clubs => "♣",
+        CardSuit.Spades => "♠",
+        _ => ""
+    };
+
+    private string GetRankDisplay(CardRank rank) => rank switch
+    {
+        CardRank.Ten => "10",
+        CardRank.Jack => "J",
+        CardRank.Queen => "Q",
+        CardRank.King => "K",
+        CardRank.Ace => "A",
+        _ => ((int)rank).ToString()
+    };
+
+    public void Dispose()
+    {
+        GameService.GameStateChanged -= OnGameStateChanged;
+        _monitoringCts?.Cancel();
+        _monitoringCts?.Dispose();
+    }
+}

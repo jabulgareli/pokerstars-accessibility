@@ -1,0 +1,96 @@
+@page "/actions"
+@using PokerStars.Accessibility.Models
+@using PokerStars.Accessibility.Services
+@inject IGameExtractionService GameService
+@inject ITextToSpeechService TtsService
+@implements IDisposable
+
+<h1 tabindex="0" aria-label="Action History">Action History</h1>
+
+<div class="actions-container" role="main">
+    <div class="controls" role="toolbar" aria-label="Action controls">
+        <button class="btn btn-secondary" @onclick="SpeakActions" aria-label="Speak recent actions">
+            🔊 Speak Actions
+        </button>
+        <button class="btn btn-primary" @onclick="RefreshActions" aria-label="Refresh actions">
+            🔄 Refresh
+        </button>
+    </div>
+
+    <section class="actions-list" aria-label="List of actions">
+        @if (_actions.Count == 0)
+        {
+            <p>No actions recorded yet.</p>
+        }
+        else
+        {
+            <table class="table" role="table" aria-label="Action history table">
+                <thead>
+                    <tr>
+                        <th scope="col">Time</th>
+                        <th scope="col">Player</th>
+                        <th scope="col">Action</th>
+                        <th scope="col">Amount</th>
+                        <th scope="col">Round</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var action in _actions.OrderByDescending(a => a.Timestamp))
+                    {
+                        <tr>
+                            <td>@action.Timestamp.ToString("HH:mm:ss")</td>
+                            <td>@action.PlayerName</td>
+                            <td>@action.ActionType</td>
+                            <td>@(action.Amount > 0 ? action.Amount.ToString("C") : "-")</td>
+                            <td>@action.Round</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </section>
+</div>
+
+@code {
+    private List<PlayerAction> _actions = new();
+
+    protected override void OnInitialized()
+    {
+        GameService.ActionDetected += OnActionDetected;
+        RefreshActions();
+    }
+
+    private void RefreshActions()
+    {
+        var gameState = GameService.GetLatestGameState();
+        if (gameState != null)
+        {
+            _actions = gameState.Table.ActionHistory.ToList();
+        }
+        StateHasChanged();
+    }
+
+    private async Task SpeakActions()
+    {
+        if (_actions.Count == 0)
+        {
+            await TtsService.SpeakAsync("No actions recorded yet");
+            return;
+        }
+
+        var recentActions = _actions.OrderByDescending(a => a.Timestamp).Take(5).Reverse();
+        var text = "Recent actions: " + string.Join(". ", recentActions.Select(a => a.ToString()));
+        await TtsService.SpeakAsync(text);
+    }
+
+    private void OnActionDetected(object? sender, PlayerAction action)
+    {
+        _actions.Add(action);
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        GameService.ActionDetected -= OnActionDetected;
+    }
+}
