@@ -1,0 +1,151 @@
+@page "/settings"
+@using PokerStars.Accessibility.Services
+@inject ITextToSpeechService TtsService
+
+<h1 tabindex="0" aria-label="Settings">Settings</h1>
+
+<div class="settings-container" role="main">
+    <!-- Text-to-Speech Settings -->
+    <section class="settings-section" aria-labelledby="tts-settings-header">
+        <h2 id="tts-settings-header">Text-to-Speech</h2>
+        
+        <div class="setting-item">
+            <label for="speech-rate">Speech Rate: @_speechRate.ToString("0.0")x</label>
+            <input type="range" id="speech-rate" 
+                   min="0.5" max="2.0" step="0.1" 
+                   @bind="_speechRate" @bind:event="oninput"
+                   aria-label="Speech rate slider" />
+        </div>
+
+        <div class="setting-item">
+            <label for="volume">Volume: @(_volume * 100).ToString("0")%</label>
+            <input type="range" id="volume" 
+                   min="0" max="1" step="0.1" 
+                   @bind="_volume" @bind:event="oninput"
+                   aria-label="Volume slider" />
+        </div>
+
+        <div class="setting-item">
+            <label for="voice-select">Voice:</label>
+            <select id="voice-select" @bind="_selectedVoice" aria-label="Select voice">
+                @foreach (var voice in _availableVoices)
+                {
+                    <option value="@voice">@voice</option>
+                }
+            </select>
+        </div>
+
+        <div class="setting-item">
+            <button class="btn btn-secondary" @onclick="TestSpeech" aria-label="Test speech settings">
+                🔊 Test Speech
+            </button>
+        </div>
+    </section>
+
+    <!-- Accessibility Settings -->
+    <section class="settings-section" aria-labelledby="accessibility-settings-header">
+        <h2 id="accessibility-settings-header">Accessibility</h2>
+        
+        <div class="setting-item">
+            <label>
+                <input type="checkbox" @bind="_autoAnnounce" aria-label="Auto-announce changes" />
+                Auto-announce game changes
+            </label>
+        </div>
+
+        <div class="setting-item">
+            <label>
+                <input type="checkbox" @bind="_announceActions" aria-label="Announce player actions" />
+                Announce player actions
+            </label>
+        </div>
+
+        <div class="setting-item">
+            <label>
+                <input type="checkbox" @bind="_announceTurn" aria-label="Announce when it's your turn" />
+                Announce when it's your turn
+            </label>
+        </div>
+    </section>
+
+    <!-- OCR Settings -->
+    <section class="settings-section" aria-labelledby="ocr-settings-header">
+        <h2 id="ocr-settings-header">Screen Capture</h2>
+        
+        <div class="setting-item">
+            <label for="refresh-interval">Refresh Interval: @_refreshInterval ms</label>
+            <input type="range" id="refresh-interval" 
+                   min="250" max="2000" step="250" 
+                   @bind="_refreshInterval" @bind:event="oninput"
+                   aria-label="Refresh interval slider" />
+        </div>
+    </section>
+
+    <div class="settings-actions">
+        <button class="btn btn-primary" @onclick="SaveSettings" aria-label="Save settings">
+            💾 Save Settings
+        </button>
+        <button class="btn btn-secondary" @onclick="ResetSettings" aria-label="Reset to defaults">
+            🔄 Reset to Defaults
+        </button>
+    </div>
+</div>
+
+@code {
+    private float _speechRate = 1.0f;
+    private float _volume = 1.0f;
+    private string _selectedVoice = "";
+    private List<string> _availableVoices = new();
+    
+    private bool _autoAnnounce = true;
+    private bool _announceActions = true;
+    private bool _announceTurn = true;
+    
+    private int _refreshInterval = 500;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _availableVoices = (await TtsService.GetAvailableVoicesAsync()).ToList();
+        if (_availableVoices.Count > 0)
+        {
+            _selectedVoice = _availableVoices.First();
+        }
+
+        _speechRate = TtsService.SpeechRate;
+        _volume = TtsService.Volume;
+    }
+
+    private async Task TestSpeech()
+    {
+        ApplyTtsSettings();
+        await TtsService.SpeakAsync("Testing text to speech. Your cards are Ace of spades and King of hearts.");
+    }
+
+    private void ApplyTtsSettings()
+    {
+        TtsService.SpeechRate = _speechRate;
+        TtsService.Volume = _volume;
+        if (!string.IsNullOrEmpty(_selectedVoice))
+        {
+            _ = TtsService.SetVoiceAsync(_selectedVoice);
+        }
+    }
+
+    private async Task SaveSettings()
+    {
+        ApplyTtsSettings();
+        // In a real app, save to preferences/storage
+        await TtsService.SpeakAsync("Settings saved");
+    }
+
+    private void ResetSettings()
+    {
+        _speechRate = 1.0f;
+        _volume = 1.0f;
+        _autoAnnounce = true;
+        _announceActions = true;
+        _announceTurn = true;
+        _refreshInterval = 500;
+        ApplyTtsSettings();
+    }
+}
