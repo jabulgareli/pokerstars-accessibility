@@ -24,11 +24,12 @@ public class GameExtractionService : IGameExtractionService
     public GameExtractionService(
         IScreenCaptureService screenCaptureService,
         IOcrService ocrService,
+        PokerTextParser textParser,
         ILogger<GameExtractionService> logger)
     {
         _screenCaptureService = screenCaptureService;
         _ocrService = ocrService;
-        _textParser = new PokerTextParser();
+        _textParser = textParser;
         _logger = logger;
     }
 
